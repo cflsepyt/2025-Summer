@@ -5,7 +5,6 @@ from sklearn.decomposition import PCA
 import netCDF4 as nc
 import sys
 
-
 # functions for reading dycore data
 def read_Dycore_data(filepath, print_var=False, lat_lim=None):
     with h5py.File(filepath, "r") as f:
@@ -242,7 +241,54 @@ class EOF:
         self._calc_explained()
 
 
+def standardize_data(data):
+    mean = np.nanmean(data, axis=0)
+    std = np.nanstd(data, axis=0, ddof=1)
+    data_std = (data - mean) / std
+    return data_std
+
+
+def calc_LIM(M1, M2, t):
+    # make sure these are plain numpy arrays, not masked‐arrays or xarray DataArrays
+    M1 = np.asarray(M1)
+    M2 = np.asarray(M2)
+
+    M = np.vstack([M1, M2])             # shape (2, N)
+    dM_dt = np.vstack([
+        np.gradient(M1, t, edge_order=2),
+        np.gradient(M2, t, edge_order=2)
+    ])                                   # shape (2, N)
+
+    # now dot‐products on plain ndarrays
+    C = M @ M.T                          # (2,2) covariance‐like matrix
+    G = dM_dt @ M.T                      # (2,2)
+
+    A = G @ np.linalg.inv(C)             # linear operator
+    print("A =\n", A)
+
+    eig_val, _ = np.linalg.eig(A)
+    growth_rate = np.real(eig_val[0])
+    freq        = np.abs(np.imag(eig_val[0]))
+    print("growth_rate =", growth_rate, " freq =", freq)
+
+    return A, growth_rate, freq
+
 def main():
+
+    # load OLR data
+    fpath = "/work/DATA/Satellite/OLR/olr_anomaly.nc"
+    with nc.Dataset( fpath, "r" ) as ds:
+        dims = {
+            key: ds[key][:]
+            for key in ds.dimensions.keys()
+        }
+        lat_lim = np.where( ( dims["lat"] >= -10.0 ) & ( dims["lat"] <= 10.0 ) )[0]
+        dims["lat"]  = dims["lat"][lat_lim]
+        dims["time"] = dims["time"][:6000]
+        
+        olr = ds["olr"][:10000, lat_lim, :]
+        olr_eq = np.nanmean(olr, axis=1)
+
     # set lat, lon
     lat = np.linspace(-90, 90, 64)
     lon = np.linspace(0, 360, 128, endpoint=False)
@@ -252,8 +298,8 @@ def main():
     p = np.load('/data92/garywu/2025_summer/dycore/npy_files/ctrl_p_mean.npy')
 
     # load dycore data (10 N ~ 10 S)
-    pattern = "/data92/garywu/LRFws/HSt42_20_ws500d_gLRF_LW_300_sst2.5K/data/*"
-    case_name = "ws500d_gLRF_LW_300_sst2.5K"
+    pattern = "/data92/garywu/LRFws/HSt42_20_ws500d_gLRF_LW_200_sst2.5K/data/*"
+    case_name = "ws500d_gLRF_LW_200_sst2.5K"
     q, w = read_dycore_series(pattern, lat_lim)
     print("finish reading data, shape:", w.shape) # (time, lev, lat, lon)
     
@@ -262,12 +308,13 @@ def main():
     cwv_eq = np.nanmean(cwv, axis=1)
 
     # standardize the data
-    mean_time = np.mean(cwv_eq, axis=0)
-    std_time = np.std(cwv_eq, axis=0, ddof=1)
-    cwv_std = (cwv_eq - mean_time) / std_time
+    cwv_std = standardize_data(cwv_eq)
+
+    # standardize data
+    olr_std = standardize_data(olr_eq)
 
     # EOF
-    model = EOF(dataset=(cwv_std,), n_components=4, field="1D")
+    model = EOF(dataset=(olr_std,), n_components=2, field="1D")
     model.get()
 
     print("EOFs shape:", model.EOF.shape)
@@ -277,23 +324,11 @@ def main():
     # calculate dM/dt
     M1 = model.PC[0, :]
     M2 = model.PC[1, :]
-    M = np.vstack([M1, M2])
 
+    # calculate LIM
     t = np.arange(M1.shape[0])
-    dM_dt = np.vstack([np.gradient(M1, t), np.gradient(M2, t)])
-
-    # calculate linear operator
-    MMT = M @ M.T                     # (2,2)
-    dMMT = dM_dt @ M.T                # (2,2)
-    A = dMMT @ np.linalg.inv(MMT)     # (2,2)
-    print(A)
-
-    # calculate the eigenvalue of A
-    eig_val, _ = np.linalg.eig(A)
-    print(eig_val)
-    growth_rate, freq = np.real(eig_val[0]), np.abs(np.imag(eig_val[0]))
-    print(growth_rate, freq)
-
+    A, growth, freq = calc_LIM(M1, M2, t)
+    
     return
 
 if __name__ == "__main__":
