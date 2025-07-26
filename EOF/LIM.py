@@ -1,9 +1,9 @@
 import glob, re, h5py
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.decomposition import PCA
 import netCDF4 as nc
 import sys
+from EOF import EOF
 
 # functions for reading dycore data
 def read_Dycore_data(filepath, print_var=False, lat_lim=None):
@@ -35,221 +35,16 @@ def read_dycore_series(pattern, lat_lim):
     return q_all, w_all
 
 
-class EOF:
-    """
-    Calculating empirical orthogonal funcitons (EOFs)
-    
-    Parameters
-    ----------
-    dataset: tuple
-        A tuple with elements are variables that you want to find their EOFs
-        Variables must be array like, and must be standardized
-        If given more than one dataset, combined EOF will be calculated
-    
-    n_components: int
-        Number of modes that you need
-
-    field: str, 1D or 2D, default = 2D
-        The dimension of input variable arrays
-    
-    **svd_args: 
-        Arguments for svd calculation in sklearn.decomposition.PCA
-    
-    About EOFs
-    ----------
-    The EOFs are vectors that represent the spatial distribution with largest temporal variation.
-    In short, finding EOFs is equivalent to solving an eigenvalue problem of the variance matrix. The first eigen mode
-    is EOF1, the second is EOF2, and so on.
-    A variance matrix is done by multiplying the input variable array and its transpose, with temporal mean is zero.
-
-    Note that
-    ---------
-    Original algorithm is developed by Kai-Chih Tseng: https://kuiper2000.github.io/
-    """
-    def __init__(
-        self,
-        dataset     : tuple,
-        n_components: int,
-        field       : str  = "2D",
-        **svd_kwargs
-    ):
-        self.dataset      = dataset
-        self.data_arr     = None
-        self.n_components = n_components
-        self.field        = field
-        self.pca          = None
-        self.EOF          = None
-        self.PC           = None
-        self.explained    = None
-        self._svd         = svd_kwargs
-    
-    def _check_dimension(self):
-        """
-        If the dimensions of input variables are not consistent with self.field, raise ValueError
-
-        Parameters
-        ----------
-        None
-
-        Returns
-        -------
-        None
-        """
-        for sub in self.dataset:
-            if (self.field == "2D" and np.ndim(sub) == 3) or (self.field == "1D" and np.ndim(sub) == 2): pass
-            else:
-                raise ValueError("The dimensions of input variables need to be consistent with input 'field'")
-
-    def _single_subdataset_reshape_2D(self, subdataset: np.ndarray) -> np.ndarray:
-        """
-        Reshape input array with dimension (time, space) into (time*space)
-
-        Parameters
-        ----------
-        subdataset: array
-            The array of variable with dimension (time, space)
-        
-        Returns
-        -------
-        _subdataset_new: array
-            The array of variable reshaped to dimension (time*space)
-        """
-        _subdataset_new = np.reshape(subdataset, (subdataset.shape[0], subdataset.shape[1]*subdataset.shape[2]))
-        return _subdataset_new
-
-    def _dataset_reshape_2D(self) -> tuple:
-        """
-        if there are more than two variables:
-            Transfer input tuple with variable arrays into np.ndarray,
-            and reshape it from dimension (var, time, space1, space2) into (time, var*space1*space2)
-            Assign self.data_arr as the reshaped array
-        else:
-            Reshape the variable array into (time, space1*space2)
-            Assign self.data_arr as the reshaped array
-
-        Parameters
-        ----------
-        None
-
-        Returns
-        -------
-        None
-        """
-        if len(self.dataset) > 1:
-            arr           = np.array(self.dataset)
-            self.data_arr = np.reshape(np.transpose(arr, (1, 0, 2, 3)), (arr.shape[1], arr.shape[0]*arr.shape[2]*arr.shape[3]))
-        else:
-            self.data_arr = self._single_subdataset_reshape_2D(self.dataset[0])
-    
-    def _dataset_reshape_1D(self):
-        """
-        Same as _dataset_reshape_2D, but for 1-dimensional input variables
-
-        Parameters
-        ----------
-        None
-
-        Returns
-        -------
-        None
-        """
-        if len(self.dataset) > 1:
-            arr           = np.array(self.dataset)
-            self.data_arr = np.reshape(np.transpose(arr, (1, 0, 2)), (arr.shape[1], arr.shape[0]*arr.shape[2]))
-        else:
-            self.data_arr = self.dataset[0]
-
-    def _fit(self):
-        """
-        Create a PCA class and fit it with input data
-
-        Parameters
-        ----------
-        None
-
-        Returns
-        -------
-        None
-        """
-        pca_ = PCA(n_components = self.n_components, **self._svd, svd_solver="full", random_state=0)
-        pca_.fit(self.data_arr)
-        self.pca = pca_
-
-    def _calc_EOF(self):
-        """
-        Calculate different EOF modes
-
-        Parameters
-        ----------
-        None
-
-        Returns
-        -------
-        None
-        """
-        self.EOF = self.pca.components_
-    
-    def _calc_PC(self):
-        """
-        Calculate PCs with input data and EOF modes
-
-        Parameters
-        ----------
-        None
-
-        Returns
-        -------
-        None
-        """
-        PC = np.dot(self.EOF, self.data_arr.T)
-        self.PC = PC
-    
-    def _calc_explained(self):
-        """
-        Calculate the explainable ratio of each given EOF modes
-
-        Parameters
-        ----------
-        None
-
-        Returns
-        -------
-        None
-        """
-        self.explained = self.pca.explained_variance_ratio_
-
-    def get(self):
-        """
-        Call _fit() _calc_EOF() _calc_PC _calc_explained() and calculate all of them
-
-        Parameters
-        ----------
-        None
-
-        Returns
-        -------
-        None
-        """
-        self._check_dimension()
-        if self.field == "1D":
-            self._dataset_reshape_1D()
-        else:
-            self._dataset_reshape_2D()
-        self._fit()
-        self._calc_EOF()
-        self._calc_PC()
-        self._calc_explained()
-
-
+# function for standardizing a data array along time axis
 def standardize_data(data):
     mean = np.nanmean(data, axis=0)
     std = np.nanstd(data, axis=0, ddof=1)
     data_std = (data - mean) / std
     return data_std
 
-
+# function for calculating Linear Inverse Model, 
+# and the growth rate and frequency
 def calc_LIM(M1, M2, t):
-    # make sure these are plain numpy arrays, not masked‐arrays or xarray DataArrays
     M1 = np.asarray(M1)
     M2 = np.asarray(M2)
 
@@ -259,7 +54,6 @@ def calc_LIM(M1, M2, t):
         np.gradient(M2, t, edge_order=2)
     ])                                   # shape (2, N)
 
-    # now dot‐products on plain ndarrays
     C = M @ M.T                          # (2,2) covariance‐like matrix
     G = dM_dt @ M.T                      # (2,2)
 
@@ -273,62 +67,68 @@ def calc_LIM(M1, M2, t):
 
     return A, growth_rate, freq
 
-def main():
+# function for performing a least square regression
+def least_square_fit(data, PC):
+    beta, *_ = np.linalg.lstsq(PC, data, rcond=None)
 
-    # load OLR data
-    fpath = "/work/DATA/Satellite/OLR/olr_anomaly.nc"
-    with nc.Dataset( fpath, "r" ) as ds:
-        dims = {
-            key: ds[key][:]
-            for key in ds.dimensions.keys()
-        }
-        lat_lim = np.where( ( dims["lat"] >= -10.0 ) & ( dims["lat"] <= 10.0 ) )[0]
-        dims["lat"]  = dims["lat"][lat_lim]
-        dims["time"] = dims["time"][:6000]
-        
-        olr = ds["olr"][:10000, lat_lim, :]
-        olr_eq = np.nanmean(olr, axis=1)
+    return beta[0, :], beta[1, :]
 
-    # set lat, lon
-    lat = np.linspace(-90, 90, 64)
-    lon = np.linspace(0, 360, 128, endpoint=False)
-    lat_lim = np.where( ( lat >= -10.0 ) & ( lat <= 10.0 ) )[0]
-
-    # load pressure coord
-    p = np.load('/data92/garywu/2025_summer/dycore/npy_files/ctrl_p_mean.npy')
-
-    # load dycore data (10 N ~ 10 S)
-    pattern = "/data92/garywu/LRFws/HSt42_20_ws500d_gLRF_LW_200_sst2.5K/data/*"
-    case_name = "ws500d_gLRF_LW_200_sst2.5K"
+# function for processing a single case (dycore output)
+def process_one_case(pattern, case_name):
+    # read dycore data
     q, w = read_dycore_series(pattern, lat_lim)
-    print("finish reading data, shape:", w.shape) # (time, lev, lat, lon)
-    
-    # calculate cwv
+    print(f"[{case_name}] finish reading data, shape:", w.shape)
+
+    # calculate column water vapor, and standardize
     cwv = np.trapz(q, p, axis=1) / 9.8
     cwv_eq = np.nanmean(cwv, axis=1)
-
-    # standardize the data
     cwv_std = standardize_data(cwv_eq)
 
-    # standardize data
-    olr_std = standardize_data(olr_eq)
-
-    # EOF
-    model = EOF(dataset=(olr_std,), n_components=2, field="1D")
+    # calculate EOF with cwv
+    model = EOF(dataset=(cwv_std,), n_components=2, field="1D")
     model.get()
 
-    print("EOFs shape:", model.EOF.shape)
-    print("PCs shape:", model.PC.shape)     
-    print("Explained variance:", model.explained)  
+    # get Mode 1 & 2
+    M1, M2 = model.PC[0, :], model.PC[1, :]
 
-    # calculate dM/dt
-    M1 = model.PC[0, :]
-    M2 = model.PC[1, :]
-
-    # calculate LIM
-    t = np.arange(M1.shape[0])
+    # calculate LIM and growth rate, frequency (1 / day)
+    t = np.arange(M1.shape[0]) * 4
     A, growth, freq = calc_LIM(M1, M2, t)
+    print(f"[{case_name}] growth={growth:.3e}, freq={freq:.3e}")
+    return A, growth, freq
+
+
+def main():
+    # set lat, lon
+    global lat_lim, p
+    lat = np.linspace(-90, 90, 64)
+    lat_lim = np.where((lat >= -10.0) & (lat <= 10.0))[0]
+    p = np.load('/data92/garywu/2025_summer/dycore/npy_files/ctrl_p_mean.npy')
+
+    # define all the cases
+    cases = [
+        ("/data92/garywu/LRFws/HSt42_20_ws500d_gLRF_LW_200_sst1K/data/*", "LRF_LW_200_sst1K"),
+        ("/data92/garywu/LRFws/HSt42_20_ws500d_gLRF_LW_200_sst2.5K/data/*", "LRF_LW_200_sst2.5K"),
+        ("/data92/garywu/LRFws/HSt42_20_ws500d_gLRF_LW_300_sst1K/data/*", "LRF_LW_300_sst1K"),
+        ("/data92/garywu/LRFws/HSt42_20_ws500d_gLRF_LW_300_sst2.5K/data/*", "LRF_LW_300_sst2.5K")
+    ]
+
+    # process and save for each case
+    results = {}
     
+    for pattern, case_name in cases:
+        results[case_name] = process_one_case(pattern, case_name)
+
+    np.savez("LIM_results.npz", **{
+        f"{name}_A": res[0] for name, res in results.items()
+    })
+
+    np.savez(
+        "LIM_results_growth_freq.npz",
+        **{f"{name}_growth": res[1] for name, res in results.items()},
+        **{f"{name}_freq":   res[2] for name, res in results.items()},
+    )
+
     return
 
 if __name__ == "__main__":
