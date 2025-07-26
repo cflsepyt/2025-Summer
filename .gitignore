@@ -1,0 +1,27 @@
+<<<<<<< HEAD
+n cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+
+# Virtual env
+venv/
+.env/
+
+# Others
+*.tmp
+*.png
+*.dat
+*.npy
+*.npz
+
