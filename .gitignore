@@ -24,4 +24,4 @@ venv/
 *.dat
 *.npy
 *.npz
-
+*.txt
