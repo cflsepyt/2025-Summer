@@ -3,27 +3,26 @@ import climlab
 import matplotlib.pyplot as plt
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import h5py
-import sys
-
-# Load mean p, T, q
-ref_p = np.load('/data92/garywu/2025_summer/dycore/npy_files/ctrl_p_mean.npy') / 100  # (20, )
-ref_T = np.load('/data92/garywu/2025_summer/dycore/npy_files/sst_2.5K_t_mean.npy')        # (20, 64, 128)
-ref_q = np.load('/data92/garywu/2025_summer/dycore/npy_files/sst_2.5K_q_mean.npy')        # (20, 64, 128)
-
-# Latitude and surface temperature
-nlev, nlat, nlon = 20, 64, 128
-lat = np.linspace(-90, 90, nlat)
-lon = np.linspace(0, 360, nlon, endpoint=False)
-θc = np.deg2rad(lat)
-T_surf = 29. * np.exp(-(θc**2) / (2 * (26. * np.pi / 180.)**2)) + 271.
-
-# Pre-allocate full LRF array (lat, p_resp, p_perturb)
-LRF_SW_q, LRF_LW_q = np.zeros((nlat, nlev, nlev)), np.zeros((nlat, nlev, nlev))
-LRF_SW_T, LRF_LW_T = np.zeros((nlat, nlev, nlev)), np.zeros((nlat, nlev, nlev))
-SW_ref, LW_ref = np.zeros((nlev, nlat)), np.zeros((nlev, nlat))
 
 # Single-latitude kernel function
-def LRF_from_q(p, T, q, T_sfc):
+def LRF_from_q(p: np.ndarray, T: np.ndarray, q: np.ndarray, T_sfc: float) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Calculate the longwave and shortwave radiative feedback kernels for perturbations in specific humidity.
+
+    Parameters:
+    p : np.ndarray
+        Pressure levels (hPa).
+    T : np.ndarray
+        Atmospheric temperature profile (K).
+    q : np.ndarray
+        Specific humidity profile (kg/kg).
+    T_sfc : float
+        Surface temperature (K).
+
+    Returns:
+    tuple[np.ndarray, np.ndarray]
+        Longwave and shortwave radiative feedback kernels.
+    """
     nlev = p.size
     state = climlab.column_state(lev=p, water_depth=1.0)
     state['Tatm'][:] = T
@@ -58,7 +57,24 @@ def LRF_from_q(p, T, q, T_sfc):
     return kernel_LW, kernel_SW
 
 
-def LRF_from_T(p, T, q, T_sfc):
+def LRF_from_T(p: np.ndarray, T: np.ndarray, q: np.ndarray, T_sfc: float) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Calculate the longwave and shortwave radiative feedback kernels for perturbations in atmospheric temperature.
+
+    Parameters:
+    p : np.ndarray
+        Pressure levels (hPa).
+    T : np.ndarray
+        Atmospheric temperature profile (K).
+    q : np.ndarray
+        Specific humidity profile (kg/kg).
+    T_sfc : float
+        Surface temperature (K).
+
+    Returns:
+    tuple[np.ndarray, np.ndarray]
+        Longwave and shortwave radiative feedback kernels.
+    """
     nlev = p.size
     state = climlab.column_state(lev=p, water_depth=1.0)
     state['Tatm'][:] = T
@@ -101,10 +117,29 @@ def LRF_from_T(p, T, q, T_sfc):
         kernel_SW[:, k] = (SW_pert - SW_ref) / dT
     return kernel_LW, kernel_SW
 
+def calc_reference_heating(
+    p: np.ndarray,  # Pressure levels (hPa)
+    T: np.ndarray,  # Atmospheric temperature profile (K)
+    q: np.ndarray,  # Specific humidity profile (kg/kg)
+    T_sfc: float    # Surface temperature (K)
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Calculate the longwave and shortwave radiative heating rates for the reference state.
 
+    Parameters:
+    p : np.ndarray
+        Pressure levels (hPa).
+    T : np.ndarray
+        Atmospheric temperature profile (K).
+    q : np.ndarray
+        Specific humidity profile (kg/kg).
+    T_sfc : float
+        Surface temperature (K).
 
-
-def calc_reference_heating(p, T, q, T_sfc):
+    Returns:
+    tuple[np.ndarray, np.ndarray]
+        Longwave and shortwave radiative heating rates for the reference state.
+    """
     nlev = p.size
     state = climlab.column_state(lev=p, water_depth=1.0)
     state['Tatm'][:] = T
@@ -117,19 +152,40 @@ def calc_reference_heating(p, T, q, T_sfc):
     SW_ref = rad.diagnostics['TdotSW'].copy()
     return LW_ref, SW_ref
 
+def main():
+    """
+    Calculate the LRFs for the mean state of the Dycore simulation.
 
+    The LRFs are calculated for the response of the atmosphere to perturbations in temperature and moisture.
+    The reference heating rates are calculated using the mean atmospheric state and surface temperature.
+    The LRFs are then calculated by perturbing the atmospheric state and computing the difference between the
+    perturbed and unperturbed heating rates.
 
-# Main execution
-if __name__ == '__main__':
+    The LRFs are saved in a HDF5 file.
+    """
+
+    # Load mean p, T, q
+    ref_p = np.load('/data92/garywu/2025_summer/dycore/npy_files/ctrl_p_mean.npy') / 100  # (20, )
+    ref_T = np.load('/data92/garywu/2025_summer/dycore/npy_files/sst_2.5K_t_mean.npy')        # (20, 64, 128)
+    ref_q = np.load('/data92/garywu/2025_summer/dycore/npy_files/sst_2.5K_q_mean.npy')        # (20, 64, 128)
+
+    # Latitude and surface temperature
+    nlev, nlat, nlon = 20, 64, 128
+    lat = np.linspace(-90, 90, nlat)
+    lon = np.linspace(0, 360, nlon, endpoint=False)
+    θc = np.deg2rad(lat)
+    T_surf = 29. * np.exp(-(θc**2) / (2 * (26. * np.pi / 180.)**2)) + 271.
+
+    # Pre-allocate full LRF array (lat, p_resp, p_perturb)
+    LRF_SW_q, LRF_LW_q = np.zeros((nlat, nlev, nlev)), np.zeros((nlat, nlev, nlev))
+    LRF_SW_T, LRF_LW_T = np.zeros((nlat, nlev, nlev)), np.zeros((nlat, nlev, nlev))
+    SW_ref, LW_ref = np.zeros((nlev, nlat)), np.zeros((nlev, nlat))
 
     for j in range(32, 64):
         LW_ref_tmp, SW_ref_tmp = calc_reference_heating(ref_p, ref_T[:, j, 0], ref_q[:, j, 0], T_surf[j])
         kernel_LW_q_tmp, kernel_SW_q_tmp = LRF_from_q(ref_p, ref_T[:, j, 0], ref_q[:, j, 0], T_surf[j])
-        # kernel_LW_T_tmp, kernel_SW_T_tmp = LRF_from_T(ref_p, ref_T[:, j, 0], ref_q[:, j, 0], T_surf[j])  
         LRF_SW_q[j, 4:, 4:] = kernel_SW_q_tmp[4:, 4:]
         LRF_LW_q[j, 4:, 4:] = kernel_LW_q_tmp[4:, 4:]
-        # LRF_SW_T[j, :, :] = kernel_SW_T_tmp
-        # LRF_LW_T[j, :, :] = kernel_LW_T_tmp
         LW_ref[:, j] = LW_ref_tmp
         SW_ref[:, j] = SW_ref_tmp
         print(f'Finished latitude index {j} (lat {lat[j]:.3f}°)')
@@ -141,8 +197,6 @@ if __name__ == '__main__':
     # Mirror Southern Hemisphere
     LRF_SW_q[:32, :, :] = np.flip(LRF_SW_q[32:, :, :], axis=0)
     LRF_LW_q[:32, :, :] = np.flip(LRF_LW_q[32:, :, :], axis=0)
-    # LRF_SW_T[:32, :, :] = np.flip(LRF_SW_T[32:, :, :], axis=0)
-    # LRF_LW_T[:32, :, :] = np.flip(LRF_LW_T[32:, :, :], axis=0)
     LW_ref[:, :32, :] = np.flip(LW_ref[:, 32:, :], axis=1)
     SW_ref[:, :32, :] = np.flip(SW_ref[:, 32:, :], axis=1)
 
@@ -150,9 +204,13 @@ if __name__ == '__main__':
     with h5py.File("/home/garywu/summer_2025/LRF/npy files/LRF_output_sst_2.5K.dat", "w") as f:
         f.create_dataset("LRF_SW_q", data=LRF_SW_q)
         f.create_dataset("LRF_LW_q", data=LRF_LW_q)
-        # f.create_dataset("LRF_SW_T", data=LRF_SW_T)
-        # f.create_dataset("LRF_LW_T", data=LRF_LW_T)
         f.create_dataset("ref_heating_LW", data=LW_ref)
         f.create_dataset("ref_heating_SW", data=SW_ref)
         f.create_dataset("ref_T", data=ref_T)
         f.create_dataset("ref_q", data=ref_q)
+
+    print('Saved to /home/garywu/summer_2025/LRF/npy files/LRF_output_sst_2.5K.dat')
+    return
+
+if __name__ == '__main__':
+    main()
