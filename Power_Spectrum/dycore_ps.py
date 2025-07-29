@@ -46,8 +46,26 @@ def read_dycore_series(pattern, lat_lim):
     return q_all
 
 # function for calculating pressure-weighted mean
-def mean_pressure_weighted(p, var, axis=0):
-    
+def mean_pressure_weighted(
+    p: np.ndarray, var: np.ndarray, axis: int = 0
+) -> np.ndarray:
+    """
+    Calculate the pressure-weighted mean of a variable.
+
+    Parameters
+    ----------
+    p : np.ndarray
+        Pressure array in hPa.
+    var : np.ndarray
+        Variable to be averaged.
+    axis : int, default=0
+        Axis over which to average.
+
+    Returns
+    -------
+    mean : np.ndarray
+        Pressure-weighted mean of the variable.
+    """
     p = np.asarray(p)
     var = np.asarray(var)
 
@@ -57,6 +75,7 @@ def mean_pressure_weighted(p, var, axis=0):
 
     num = np.trapz(var * p_bcast, p, axis=axis)
     den = np.trapz(p, p)
+
     return num / den
 
 # function for plotting dispersion curve
@@ -67,30 +86,57 @@ def draw_wk_sym_analysis(
     he: list = [25, 50, 150],
     meridional_modes: list = [1],
 ):
+    """
+    Draws Wheeler-Kiladis symmetric analysis on the given axis.
+
+    Parameters
+    ----------
+    max_wn : float
+        Maximum zonal wavenumber.
+    ax : matplotlib.axes.Axes, optional
+        Axis to plot on. If None, uses the current axis.
+    matsuno_lines : bool
+        Whether to plot Matsuno modes as lines.
+    he : list of int
+        List of equivalent depths for Matsuno modes.
+    meridional_modes : list of int
+        List of meridional mode numbers.
+
+    Returns
+    -------
+    None
+    """
+    # Get Matsuno modes for the specified parameters
     matsuno_modes = matsuno_plot.matsuno_modes_wk(
         he=he, n=meridional_modes, max_wn=max_wn
     )
 
+    # If no axis provided, use the current axis
     if ax is None:
         ax = plt.gca()
 
+    # Plot Matsuno lines if specified
     if matsuno_lines:
         for key in matsuno_modes:
+            # Plot Kelvin mode
             ax.plot(
                 matsuno_modes[key]["Kelvin(he={}m)".format(key)],
                 color="k",
                 linestyle="--"
             )
+            # Plot Equatorial Rossby mode
             ax.plot(
                 matsuno_modes[key]["ER(n=1,he={}m)".format(key)],
                 color="k",
                 linestyle="--"
             )
+            # Plot Equatorial Easterly Gravity mode
             ax.plot(
                 matsuno_modes[key]["EIG(n=1,he={}m)".format(key)],
                 color="k",
                 linestyle="--"
             )
+            # Plot Equatorial Westerly Gravity mode
             ax.plot(
                 matsuno_modes[key]["WIG(n=1,he={}m)".format(key)],
                 color="k",
@@ -98,7 +144,22 @@ def draw_wk_sym_analysis(
             )
 
 # functions for calculating power spectrum
-def power_spec(data):
+def power_spec(
+    data: np.ndarray
+) -> np.ndarray:
+    """
+    Calculate the power spectral density of a 3-D array of data.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        3-D array of data with shape (time, lat, lon).
+
+    Returns
+    -------
+    ps : np.ndarray
+        Power spectral density array with shape (lat, lon).
+    """
     
     data_fft = np.fft.fft(data, axis=1)
     data_fft = np.fft.ifft(data_fft, axis=3) * data.shape[3]
@@ -107,7 +168,22 @@ def power_spec(data):
     
     return ps.mean(axis=0).real
 
-def background(data):
+def background(
+    data: np.ndarray
+) -> np.ndarray:
+    """
+    Smooth out the input data to create a background field.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        3-D array of data with shape (time, lat, lon)
+
+    Returns
+    -------
+    background : np.ndarray
+        Smoothed 3-D array of data with shape (time, lat, lon)
+    """
     data = data.copy()
     kernel = np.array([1, 2, 1]) / 4.0
     half_freq = data.shape[0] // 2
@@ -122,58 +198,103 @@ def background(data):
     return data
 
 
-def power_spectrum_calc(data):
+def power_spectrum_calc(data: np.ndarray):
     """
-    data: 3-D array with shape (time, lat, lon)
+    Calculate the power spectrum for a given input data.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        3-D array of data with shape (time, lat, lon).
+
+    Returns
+    -------
+    wn : np.ndarray
+        1-D array of zonal wavenumber.
+    fr : np.ndarray
+        1-D array of frequency.
+    sym_ps : np.ndarray
+        1-D array of power spectral density for symmetric components.
+    asym_ps : np.ndarray
+        1-D array of power spectral density for antisymmetric components.
     """
-    # equatorial latitudes
+    # Remove mean to focus on anomalies
     data_eq = data.copy()
     data_eq -= data_eq.mean(axis=(0, 2), keepdims=True)
 
-    # symmetric & antisymmetric decomposition
-    sym  = (data_eq + np.flip(data_eq, axis=1)) / 2
+    # Decompose into symmetric and antisymmetric components
+    sym = (data_eq + np.flip(data_eq, axis=1)) / 2
     asym = (data_eq - np.flip(data_eq, axis=1)) / 2
 
-    # window data
+    # Define a Hanning window for smoothing
     hanning = np.hanning(96 * 4)[:, None, None]
 
     sym_window = []
     asym_window = []
 
-    for i in range( data_eq.shape[0] // (96*4) ):
-        sym_window.append( detrend( sym[i*48*4:i*48*4+96*4], axis=0) * hanning )
-        asym_window.append( detrend( asym[i*48*4:i*48*4+96*4], axis=0) * hanning )
-        
-    sym_window = np.array( sym_window )
-    asym_window = np.array( asym_window )
+    # Apply window and detrend data
+    for i in range(data_eq.shape[0] // (96 * 4)):
+        sym_window.append(detrend(sym[i * 48 * 4:i * 48 * 4 + 96 * 4], axis=0) * hanning)
+        asym_window.append(detrend(asym[i * 48 * 4:i * 48 * 4 + 96 * 4], axis=0) * hanning)
 
-    wn = np.fft.fftshift(np.fft.fftfreq(128, d=1/128))
-    fr = np.fft.fftshift(np.fft.fftfreq(96*4, d=1/4))
+    sym_window = np.array(sym_window)
+    asym_window = np.array(asym_window)
 
-    sym_ps  = np.fft.fftshift(power_spec(sym_window).sum(axis=1))[fr > 0] * 2.0
+    # Calculate wavenumber and frequency
+    wn = np.fft.fftshift(np.fft.fftfreq(128, d=1 / 128))
+    fr = np.fft.fftshift(np.fft.fftfreq(96 * 4, d=1 / 4))
+
+    # Compute power spectral densities
+    sym_ps = np.fft.fftshift(power_spec(sym_window).sum(axis=1))[fr > 0] * 2.0
     asym_ps = np.fft.fftshift(power_spec(asym_window).sum(axis=1))[fr > 0] * 2.0
 
     return wn, fr, sym_ps, asym_ps
 
 
 def plot_power_spectrum(wn, fr, sym_ps, bg, output_dir, filename):
-    
+    """
+    Plot the power spectrum using symmetric components and background field.
+
+    Parameters
+    ----------
+    wn : np.ndarray
+        Array of zonal wavenumbers.
+    fr : np.ndarray
+        Array of frequencies.
+    sym_ps : np.ndarray
+        Power spectral density for symmetric components.
+    bg : np.ndarray
+        Background field for normalization.
+    output_dir : str
+        Directory to save the output plot.
+    filename : str
+        Filename for the saved plot.
+
+    Returns
+    -------
+    None
+    """
+    # Create a figure and axis for the plot
     fig, ax = plt.subplots(figsize=(7, 6))
+
+    # Draw WK symmetric analysis on the axis
     draw_wk_sym_analysis(ax=ax)
 
+    # Plot contour of power spectrum normalized by background
     cf = ax.contourf(
         wn, fr[fr > 0], sym_ps / bg,
         levels=np.arange(0, 3.5, 0.5),
-        # levels=21,
         extend="max",
         cmap=custom_cmap
-        # cmap='Reds'
     )
+
+    # Add a colorbar for the contour plot
     cbar = fig.colorbar(cf, shrink=0.8)
 
-    R_earth = 6.371e6
-    c = 8.0
-    slope = c * 86400.0 / (2 * np.pi * R_earth)
+    # Calculate and plot the reference line for a specific speed
+    R_earth = 6.371e6  # Earth's radius in meters
+    c = 8.0  # Reference speed in m/s
+    slope = c * 86400.0 / (2 * np.pi * R_earth)  # Slope for the line
     wn_line = np.array([0, ax.get_xlim()[1]])
     fr_line = slope * wn_line
     ax.plot(wn_line, fr_line,
@@ -182,19 +303,26 @@ def plot_power_spectrum(wn, fr, sym_ps, bg, output_dir, filename):
             color='blue',
             label='6 m/s')
 
+    # Set axis limits and labels
     ax.set_xlim(-15, 15)
     ax.set_ylim(0, 0.5)
     ax.set_xlabel('Zonal Wavenumber')
     ax.set_ylabel('Frequency')
+
+    # Set plot title
     ax.set_title(f'Mean power spectrum ({filename})')
-    
+
+    # Save the plot to file
     plt.savefig(f'{output_dir}{filename}.png', dpi=300, bbox_inches='tight')
     plt.close()
     print(f'figure saved as {filename}.png')
-    return
 
 
 def main():
+    """
+    Calculate the power spectrum for a given input data and plot the
+    normalized power spectrum.
+    """
     # lat, lon and lat_lim
     x = np.linspace(0, 360, 128, endpoint=False)
     y = np.linspace(-90, 90, 64)
