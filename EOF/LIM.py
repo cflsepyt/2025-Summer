@@ -256,13 +256,9 @@ def main():
 
     # define all the cases
     cases = [
-        # LRFws with LW heating of 200 K/day and sst of 1K
         ("/data92/garywu/LRFws/HSt42_20_ws500d_gLRF_LW_200_sst1K/data/*", "LRF_LW_200_sst1K"),
-        # LRFws with LW heating of 200 K/day and sst of 2.5K
         ("/data92/garywu/LRFws/HSt42_20_ws500d_gLRF_LW_200_sst2.5K/data/*", "LRF_LW_200_sst2.5K"),
-        # LRFws with LW heating of 300 K/day and sst of 1K
         ("/data92/garywu/LRFws/HSt42_20_ws500d_gLRF_LW_300_sst1K/data/*", "LRF_LW_300_sst1K"),
-        # LRFws with LW heating of 300 K/day and sst of 2.5K
         ("/data92/garywu/LRFws/HSt42_20_ws500d_gLRF_LW_300_sst2.5K/data/*", "LRF_LW_300_sst2.5K")
     ]
 
